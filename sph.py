@@ -11,6 +11,7 @@ class particle:
         self.mass=mass
         self.pos=position
         self.velocity=0
+        self.accln=0
         self.internalEnergy=internalEnergy
         self.pressure=0
         self.neighbours=[]
@@ -130,7 +131,9 @@ def acclnCalc(particles,gradKernel):
     for i in particles:
         accln=0
         for j in i.neighbours:
+            dist=i.vecDist(j)
             accln+=j.mass*(i.pressure/(i.density**2) + j.pressure/(j.density**2))*gradKernel(dist,smoothL)
+        i.accln=accln
 
 def workLoop(N,eta,plot,show,dimension=1): 
     if dimension==1:
