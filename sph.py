@@ -13,9 +13,10 @@ class particle:
         self.velocity=0
         self.accln=0
         self.internalEnergy=internalEnergy
+        self.deltaU=0
         self.pressure=0
-        self.neighbours=[]
         self.density=0
+        self.neighbours=[]
 
     def distance(self,otherParticle):
         relativePosition=self.pos - otherParticle.pos
@@ -127,15 +128,23 @@ def pressureCalc(particles,gamma):
     for i in particles:
         i.pressure=(gamma-1)*i.density*i.internalEnergy
 
-def acclnCalc(particles,gradKernel):
+def acclnCalc(particles,gradKernel,smoothL):
     for i in particles:
         accln=0
         for j in i.neighbours:
             dist=i.vecDist(j)
-            accln+=j.mass*(i.pressure/(i.density**2) + j.pressure/(j.density**2))*gradKernel(dist,smoothL)
+            accln-=j.mass*(i.pressure/(i.density**2) + j.pressure/(j.density**2))*gradKernel(dist,smoothL)
         i.accln=accln
 
-def workLoop(N,eta,plot,show,dimension=1): 
+#Change in internal energy
+def deltaUCalc(particles,gradKernel,smoothL):
+    for i in particles:
+        dU=0
+        for j in i.neighbours:
+            dU+=j.mass*(i.velocity-j.velocity)*gradKernel(i.vecDist(j),smoothL)
+        i.deltaU=i.pressure/(i.density**2)*dU
+
+def workLoop(N,eta,plot,dimension=1): 
     if dimension==1:
         Kernel=M4Kernel1D
     elif dimension==2:
@@ -144,16 +153,19 @@ def workLoop(N,eta,plot,show,dimension=1):
         Kernel=M4Kernel3D
     gamma=5/3
     particles=list(map(lambda x: particle(1/N,x,1), np.linspace(0,1,N)))
-    pressureCalc(particles,gamma)
     smoothL=smoothingLength(particles,eta)
     neighbourSearch(particles,smoothL)
     densityEstimation(particles,smoothL,Kernel)
+    pressureCalc(particles,gamma)
+    acclnCalc(particles,GradM4Kernel1D,smoothL)
+    deltaUCalc(particles,GradM4Kernel1D,smoothL)
+    acclns=list(map(lambda x: x.accln, particles))
+    dU=list(map(lambda x: x.deltaU, particles))
+    pressure=list(map(lambda x: x.pressure, particles))
     densities=list(map(lambda x: x.density, particles))
     positions=list(map(lambda x: x.pos, particles))
     if plot:
-        plt.plot(positions,densities)
-        if show:
-            plt.xlabel('Position')
-            plt.ylabel('Density')
-            plt.title('Density vs Position')
-            plt.show()
+        plt.plot(positions,acclns)
+        plt.show()
+
+workLoop(100,5,True)
