@@ -20,6 +20,7 @@ class particle:
         relativePosition=self.pos - otherParticle.pos
         dist=np.sqrt(np.dot(relativePosition,relativePosition))
         return dist
+    
     def vecDist(self,otherParticle):
         relPos=self.pos - otherParticle.pos
         return relPos
@@ -30,7 +31,9 @@ since need to calculate normalization each time
 '''
 
 def M4Kernel1D(s,SmoothL):
-    s/=SmoothL
+    sMag=np.sqrt(np.dot(s,s))
+    sUnit=s/sMag
+    s=sMag/SmoothL
     if s>=0 and s<=1:
         return (2/(3*SmoothL))*(1-3*s**2/2 +3*s**3/4)
     elif s>1 and s<=2:
@@ -40,18 +43,22 @@ def M4Kernel1D(s,SmoothL):
     else:
         return 0
 
-def GradM4Kernel1D(s,sUnitVec,SmoothL):
-    s/=SmoothL
+def GradM4Kernel1D(s,SmoothL):
+    sMag=np.sqrt(np.dot(s,s))
+    sUnit=s/sMag
+    s=sMag/SmoothL
     if s>=0 and s<=1:
         grad=(2/(3*SmoothL**2))*(-3*s +9*s**2/4)
     elif s>1 and s<=2:
         grad=(2/(3*SmoothL**2))*(-3*(2-s)**2)/4
     else:
         grad=0
-    return grad*sUnitVec
+    return grad*sUnit
 
 def M4Kernel2D(s,SmoothL):
-    s/=SmoothL
+    sMag=np.sqrt(np.dot(s,s))
+    sUnit=s/sMag
+    s=sMag/SmoothL
     if s>=0 and s<=1:
         return (10/(7*np.pi*(SmoothL)**2))*(1-3*s**2/2 +3*s**3/4)
     elif s>1 and s<=2:
@@ -62,7 +69,9 @@ def M4Kernel2D(s,SmoothL):
         return None
 
 def M4Kernel3D(s,SmoothL):
-    s/=SmoothL
+    sMag=np.sqrt(np.dot(s,s))
+    sUnit=s/sMag
+    s=sMag/SmoothL
     if s>=0 and s<=1:
         return (1/(np.pi*(SmoothL)**3))*(1-3*s**2/2 +3*s**3/4)
     elif s>1 and s<=2:
@@ -109,7 +118,7 @@ def densityEstimation(particles,smoothL, Kernel):
         neighbours=i.neighbours
         density=Kernel(0,smoothL) 
         for j in neighbours:
-            dist=i.distance(j)
+            dist=i.vecDist(j)
             density+=j.mass*Kernel(dist,smoothL)
         i.density=density
 
@@ -118,8 +127,10 @@ def pressureCalc(particles,gamma):
         i.pressure=(gamma-1)*i.density*i.internalEnergy
 
 def acclnCalc(particles,gradKernel):
-    for i in range(len(particles)):
-
+    for i in particles:
+        accln=0
+        for j in i.neighbours:
+            accln+=j.mass*(i.pressure/(i.density**2) + j.pressure/(j.density**2))*gradKernel(dist,smoothL)
 
 def workLoop(N,eta,plot,show,dimension=1): 
     if dimension==1:
