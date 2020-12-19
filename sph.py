@@ -15,7 +15,9 @@ class particle:
         self.internalEnergy=internalEnergy
         self.deltaU=0
         self.pressure=0
+        self.soundSpeed=0
         self.density=0
+        self.divV=0
         self.neighbours=[]
 
     def distance(self,otherParticle):
@@ -40,8 +42,6 @@ def M4Kernel1D(s,SmoothL):
         return (2/(3*SmoothL))*(1-3*s**2/2 +3*s**3/4)
     elif s>1 and s<=2:
         return (2/(3*SmoothL))*((2-s)**3)/4
-    elif s>2:
-        return 0
     else:
         return 0
 
@@ -65,10 +65,8 @@ def M4Kernel2D(s,SmoothL):
         return (10/(7*np.pi*(SmoothL)**2))*(1-3*s**2/2 +3*s**3/4)
     elif s>1 and s<=2:
         return (10/(7*np.pi*(SmoothL)**2))*((2-s)**3)/4
-    elif s>2:
-        return 0
     else:
-        return None
+        return 0
 
 def M4Kernel3D(s,SmoothL):
     sMag=np.sqrt(np.dot(s,s))
@@ -78,14 +76,15 @@ def M4Kernel3D(s,SmoothL):
         return (1/(np.pi*(SmoothL)**3))*(1-3*s**2/2 +3*s**3/4)
     elif s>1 and s<=2:
         return (1/(np.pi*(SmoothL)**3))*((2-s)**3)/4
-    elif s>2:
-        return 0
     else:
-        return None 
+        return 0 
 
-def divergenceVec(vectors,particles,distances,gradKernel,smoothL):
-    for j in range(len(particles)):
-        result+=(particles[j].mass/particles[j].density)*np.dot(vectors[j],gradKernel(distances[j],smoothL))
+def divergenceV(particles,gradKernel,smoothL):
+    for i in particles:
+        result=0
+        for j in i.neighbours:
+            result+=(j.mass/j.density)*np.dot(j.velocity,gradKernel(i.vecDist(j),smoothL))
+        i.divV=result
 
 def smoothingLength(particles,eta):
     minDistances=[]
@@ -127,6 +126,7 @@ def densityEstimation(particles,smoothL, Kernel):
 def pressureCalc(particles,gamma):
     for i in particles:
         i.pressure=(gamma-1)*i.density*i.internalEnergy
+        i.soundSpeed=np.sqrt(gamma*(gamma-1)*i.internalEnergy)
 
 def acclnCalc(particles,gradKernel,smoothL):
     for i in particles:
@@ -136,6 +136,12 @@ def acclnCalc(particles,gradKernel,smoothL):
             accln-=j.mass*(i.pressure/(i.density**2) + j.pressure/(j.density**2))*gradKernel(dist,smoothL)
         i.accln=accln
 
+def eulerIntegration(particles,timeStep):
+    for i in particles:
+        i.pos=i.pos+i.velocity*timeStep
+        i.velocity=i.velocity+i.accln*timeStep
+        i.internalEnergy+=i.deltaU*timeStep
+
 #Change in internal energy
 def deltaUCalc(particles,gradKernel,smoothL):
     for i in particles:
@@ -144,28 +150,56 @@ def deltaUCalc(particles,gradKernel,smoothL):
             dU+=j.mass*(i.velocity-j.velocity)*gradKernel(i.vecDist(j),smoothL)
         i.deltaU=i.pressure/(i.density**2)*dU
 
-def workLoop(N,eta,plot,dimension=1): 
+def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon):
+    Tmax=[]
+    for i in particles:
+        TmaxI=CFL*min(smoothL/(smoothL*abs(i.divV) + i.soundSpeed),np.sqrt(smoothL/(abs(i.accln)+epsilon)))
+        Tmax.append(TmaxI)
+    Tglobal=np.min(Tmax)
+    return Tglobal
+
+def workLoop(N,eta,CFL,epsilon,endTime,dimension=1): 
+    #Kernel determination
     if dimension==1:
         Kernel=M4Kernel1D
+        gradKernel=GradM4Kernel1D
     elif dimension==2:
         Kernel=M4Kernel2D
     elif dimension==3:
         Kernel=M4Kernel3D
-    gamma=5/3
-    particles=list(map(lambda x: particle(1/N,x,1), np.linspace(0,1,N)))
-    smoothL=smoothingLength(particles,eta)
-    neighbourSearch(particles,smoothL)
-    densityEstimation(particles,smoothL,Kernel)
-    pressureCalc(particles,gamma)
-    acclnCalc(particles,GradM4Kernel1D,smoothL)
-    deltaUCalc(particles,GradM4Kernel1D,smoothL)
-    acclns=list(map(lambda x: x.accln, particles))
-    dU=list(map(lambda x: x.deltaU, particles))
-    pressure=list(map(lambda x: x.pressure, particles))
-    densities=list(map(lambda x: x.density, particles))
-    positions=list(map(lambda x: x.pos, particles))
-    if plot:
-        plt.plot(positions,acclns)
-        plt.show()
 
-workLoop(100,5,True)
+    #Particle generation
+    particles=list(map(lambda x: particle(1/N,x,1), np.linspace(0,1,N)))
+
+    time=0
+    legend=[]
+    recordInstants=[0.1,0.2,0.3]
+    while time<endTime:
+
+        #Density Estimation
+        smoothL=smoothingLength(particles,eta)
+        neighbourSearch(particles,smoothL)
+        densityEstimation(particles,smoothL,Kernel)
+
+        #Parameter Calculation
+        gamma=5/3
+        pressureCalc(particles,gamma)
+        acclnCalc(particles,gradKernel,smoothL)
+        deltaUCalc(particles,gradKernel,smoothL)
+
+        #Integration over time
+        timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon)
+        eulerIntegration(particles,timeStep)
+
+        #Plotting
+        positions=list(map(lambda x: x.pos, particles))
+        densities=list(map(lambda x: x.density, particles))
+        velocities=list(map(lambda x: x.velocity, particles))
+        if round(time,2) in recordInstants:
+            plt.plot(positions,densities)
+            legend.append(round(time,2))
+        time+=timeStep
+    plt.legend(legend)
+    plt.show()
+
+workLoop(100,3,0.5,0,0.3)
