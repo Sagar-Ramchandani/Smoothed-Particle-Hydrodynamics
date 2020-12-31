@@ -158,6 +158,12 @@ def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon):
     Tglobal=np.min(Tmax)
     return Tglobal
 
+def totalEnergy(particles):
+    tE=0
+    for i in particles:
+        tE+=(i.mass*i.velocity**2)/2 + i.internalEnergy
+    return tE
+
 def workLoop(N,eta,CFL,epsilon,endTime,dimension=1): 
     #Kernel determination
     if dimension==1:
@@ -173,7 +179,12 @@ def workLoop(N,eta,CFL,epsilon,endTime,dimension=1):
 
     time=0
     legend=[]
-    recordInstants=[0.1,0.2,0.3]
+    PositionsT=[]
+    DensitiesT=[]
+    VelocitiesT=[]
+    TE=[]
+    timeT=[]
+    recordInstants=[0.,0.1,0.2,0.3]
     while time<endTime:
 
         #Density Estimation
@@ -192,14 +203,35 @@ def workLoop(N,eta,CFL,epsilon,endTime,dimension=1):
         eulerIntegration(particles,timeStep)
 
         #Plotting
-        positions=list(map(lambda x: x.pos, particles))
-        densities=list(map(lambda x: x.density, particles))
-        velocities=list(map(lambda x: x.velocity, particles))
         if round(time,2) in recordInstants:
-            plt.plot(positions,densities)
+            PositionsT.append(list(map(lambda x: x.pos, particles)))
+            DensitiesT.append(list(map(lambda x: x.density, particles)))
+            VelocitiesT.append(list(map(lambda x: x.velocity, particles)))
+            TE.append(totalEnergy(particles))
             legend.append(round(time,2))
+            timeT.append(round(time,2))
         time+=timeStep
-    plt.legend(legend)
-    plt.show()
-
-workLoop(100,3,0.5,0,0.3)
+    #for pos,den in zip(PositionsT,DensitiesT):
+    #    plt.plot(pos,den)
+    #plt.xlabel('Position')
+    #plt.ylabel('Density')
+    #plt.legend(legend)
+    #plt.show()
+    #for pos,vel in zip(PositionsT,VelocitiesT):
+    #    plt.plot(pos,vel)
+    #plt.xlabel('Position')
+    #plt.ylabel('Velocity')
+    #plt.legend(legend)
+    #plt.show()
+    plt.plot(timeT,TE)
+    #plt.show()
+#workLoop(100,3,0.5,0,0.3)
+#for eta in range(2,11):
+#    workLoop(100,eta,0.5,0,0.3)
+#plt.legend(range(2,11))
+#plt.show()
+for cfl in np.linspace(0.5,1,5):
+    workLoop(100,3,cfl,0,0.3)
+    print(cfl)
+plt.legend(np.linspace(0.5,1,5))
+plt.show()
