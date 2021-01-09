@@ -36,7 +36,7 @@ since need to calculate normalization each time
 
 def M4Kernel1D(s,SmoothL):
     sMag=np.sqrt(np.dot(s,s))
-    sUnit=s/sMag
+    #sUnit=s/sMag
     s=sMag/SmoothL
     if s>=0 and s<=1:
         return (2/(3*SmoothL))*(1-3*s**2/2 +3*s**3/4)
@@ -59,7 +59,7 @@ def GradM4Kernel1D(s,SmoothL):
 
 def M4Kernel2D(s,SmoothL):
     sMag=np.sqrt(np.dot(s,s))
-    sUnit=s/sMag
+    #sUnit=s/sMag
     s=sMag/SmoothL
     if s>=0 and s<=1:
         return (10/(7*np.pi*(SmoothL)**2))*(1-3*s**2/2 +3*s**3/4)
@@ -70,7 +70,7 @@ def M4Kernel2D(s,SmoothL):
 
 def M4Kernel3D(s,SmoothL):
     sMag=np.sqrt(np.dot(s,s))
-    sUnit=s/sMag
+    #sUnit=s/sMag
     s=sMag/SmoothL
     if s>=0 and s<=1:
         return (1/(np.pi*(SmoothL)**3))*(1-3*s**2/2 +3*s**3/4)
@@ -117,7 +117,7 @@ def neighbourSearch(particles,smoothL):
 def densityEstimation(particles,smoothL, Kernel):
     for i in particles:
         neighbours=i.neighbours
-        density=Kernel(0,smoothL) 
+        density=Kernel(0,smoothL)*i.mass 
         for j in neighbours:
             dist=i.vecDist(j)
             density+=j.mass*Kernel(dist,smoothL)
@@ -126,7 +126,7 @@ def densityEstimation(particles,smoothL, Kernel):
 def pressureCalc(particles,gamma):
     for i in particles:
         i.pressure=(gamma-1)*i.density*i.internalEnergy
-        i.soundSpeed=np.sqrt(gamma*(gamma-1)*i.internalEnergy)
+        i.soundSpeed=np.sqrt(abs(gamma*(gamma-1)*i.internalEnergy))
 
 def acclnCalc(particles,gradKernel,smoothL):
     for i in particles:
@@ -161,7 +161,7 @@ def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon):
 def totalEnergy(particles):
     tE=0
     for i in particles:
-        tE+=(i.mass*i.velocity**2)/2 + i.internalEnergy
+        tE+=(i.mass*i.velocity**2)/2 + i.internalEnergy*i.mass
     return tE
 
 def workLoop(N,eta,CFL,epsilon,endTime,dimension=1): 
@@ -184,54 +184,74 @@ def workLoop(N,eta,CFL,epsilon,endTime,dimension=1):
     VelocitiesT=[]
     TE=[]
     timeT=[]
-    recordInstants=[0.,0.1,0.2,0.3]
+    recordInstants=[0.,0.1,0.2,0.3,0.4]
+    
+   
+    recIndex=0 
     while time<endTime:
-
+            
         #Density Estimation
         smoothL=smoothingLength(particles,eta)
         neighbourSearch(particles,smoothL)
         densityEstimation(particles,smoothL,Kernel)
-
+            
         #Parameter Calculation
         gamma=5/3
         pressureCalc(particles,gamma)
         acclnCalc(particles,gradKernel,smoothL)
         deltaUCalc(particles,gradKernel,smoothL)
-
-        #Integration over time
-        timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon)
-        eulerIntegration(particles,timeStep)
-
+        
         #Plotting
-        if round(time,2) in recordInstants:
+        if (time <= recordInstants[recIndex]+0.015)and(time >= recordInstants[recIndex]-0.01):
             PositionsT.append(list(map(lambda x: x.pos, particles)))
             DensitiesT.append(list(map(lambda x: x.density, particles)))
             VelocitiesT.append(list(map(lambda x: x.velocity, particles)))
             TE.append(totalEnergy(particles))
-            legend.append(round(time,2))
+            legend.append('t='+str(round(time,2)))
             timeT.append(round(time,2))
+            #print(recIndex)
+            recIndex+=1
+
+        #Integration over time
+        timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon)
+        eulerIntegration(particles,timeStep)
         time+=timeStep
-    #for pos,den in zip(PositionsT,DensitiesT):
-    #    plt.plot(pos,den)
-    #plt.xlabel('Position')
-    #plt.ylabel('Density')
-    #plt.legend(legend)
-    #plt.show()
-    #for pos,vel in zip(PositionsT,VelocitiesT):
-    #    plt.plot(pos,vel)
-    #plt.xlabel('Position')
-    #plt.ylabel('Velocity')
-    #plt.legend(legend)
-    #plt.show()
+        #print( timeStep, time)
+        
+        
+    if True:#(time <= recordInstants[recIndex]+0.015)and(time >= recordInstants[recIndex]-0.01):
+            PositionsT.append(list(map(lambda x: x.pos, particles)))
+            DensitiesT.append(list(map(lambda x: x.density, particles)))
+            VelocitiesT.append(list(map(lambda x: x.velocity, particles)))
+            TE.append(totalEnergy(particles))
+            legend.append('t='+str(round(time,2)))
+            timeT.append(round(time,2))
+            #print(recIndex)
+            recIndex+=1    
+        
+    for pos,den in zip(PositionsT,DensitiesT):
+        plt.plot(pos,den)
+    plt.xlabel('Position')
+    plt.ylabel('Density')
+    plt.legend(legend)
+    plt.show()
+    for pos,vel in zip(PositionsT,VelocitiesT):
+        plt.plot(pos,vel)
+    plt.xlabel('Position')
+    plt.ylabel('Velocity')
+    plt.legend(legend)
+    plt.show()
+    plt.xlabel('Time')
+
     plt.plot(timeT,TE)
-    #plt.show()
-#workLoop(100,3,0.5,0,0.3)
-#for eta in range(2,11):
+    plt.show()
+workLoop(100,5,5,0.0000000001,0.3)
+#for eta in range(2,5):
 #    workLoop(100,eta,0.5,0,0.3)
-#plt.legend(range(2,11))
+#plt.legend(range(2,5))
 #plt.show()
-for cfl in np.linspace(0.5,1,5):
-    workLoop(100,3,cfl,0,0.3)
-    print(cfl)
-plt.legend(np.linspace(0.5,1,5))
-plt.show()
+#for cfl in np.linspace(0.1,1,4):
+#    workLoop(100,4,cfl,0.0000000001,0.35)
+#    print(cfl)
+#plt.legend(np.linspace(0.1,1,4))
+#plt.show()
