@@ -125,12 +125,22 @@ def pressureCalc(particles,gamma):
         i.pressure=(gamma-1)*i.density*i.internalEnergy
         i.soundSpeed=np.sqrt(abs(gamma*(gamma-1)*i.internalEnergy))
 
-def acclnCalc(particles,gradKernel,smoothL):
+def acclnCalc(particles,gradKernel,smoothL,alpha=1):
     for i in particles:
         accln=0
         for j in i.neighbours:
-            dist=i.vecDist(j)
-            accln-=j.mass*(i.pressure/(i.density**2) + j.pressure/(j.density**2))*gradKernel(dist,smoothL)
+            relDist=i.vecDist(j)
+            relDistMag=np.linalg.norm(relDist)
+            accln-=j.mass*(i.pressure/(i.density**2) + j.pressure/(j.density**2))*gradKernel(relDist,smoothL)
+            #Viscosity term
+            relVel=i.velocity-j.velocity
+            if np.dot(relVel,relDist)>0:
+                pass
+            else:
+                beta=2*alpha
+                avgDensity=(i.density+j.density)/2
+                vSig=i.soundSpeed+j.soundSpeed-beta*np.dot(relVel,relDist)/relDistMag
+                accln+=j.mass*gradKernel(relDist,smoothL)*alpha*vSig*np.dot(relVel,relDist)/(avgDensity*relDistMag)
         i.accln=accln
 
 def eulerIntegration(particles,timeStep):
@@ -140,18 +150,32 @@ def eulerIntegration(particles,timeStep):
         i.internalEnergy+=i.deltaU*timeStep
 
 #Change in internal energy
-def deltaUCalc(particles,gradKernel,smoothL):
+def deltaUCalc(particles,gradKernel,smoothL,alpha=1):
     for i in particles:
         dU=0
         for j in i.neighbours:
+            relDist=i.vecDist(j)
+            relDistMag=np.linalg.norm(relDist)
             dU+=j.mass*(i.velocity-j.velocity)*gradKernel(i.vecDist(j),smoothL)
+            #Viscosity term
+            relVel=i.velocity-j.velocity
+            if np.dot(relVel,relDist)>0:
+                pass
+            else:
+                beta=alpha*2
+                avgDensity=(i.density+j.density)/2
+                vSig=i.soundSpeed+j.soundSpeed-beta*np.dot(relVel,relDist)/relDistMag
+                dU-=j.mass*relDist/relDistMag*gradKernel(relDist,smoothL)*(
+                        alpha*(relVel*relDist)**2/(2*avgDensity*relDistMag**2))
         i.deltaU=i.pressure/(i.density**2)*dU
 
-def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon):
+def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha=1):
     Tmax=[]
     for i in particles:
+        beta=2*alpha
         TmaxI=CFL*min(smoothL/(smoothL*abs(i.divV) + i.soundSpeed),
-                np.sqrt(smoothL/(abs(i.accln)+epsilon)))
+                np.sqrt(smoothL/(abs(i.accln)+epsilon)),
+                smoothL/((1+1.2*alpha)*i.soundSpeed+(1+1.2*beta)*smoothL*abs(i.divV)))
         Tmax.append(TmaxI)
     Tglobal=np.min(Tmax)
     return Tglobal
@@ -162,7 +186,7 @@ def totalEnergy(particles):
         tE+=(i.mass*i.velocity**2)/2 + i.internalEnergy*i.mass
     return tE
 
-def workLoop(N,eta,CFL,epsilon,endTime,nRecordInstants=3,dimension=1): 
+def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1): 
     #Kernel determination
     if dimension==1:
         Kernel=M4Kernel1D
@@ -183,7 +207,6 @@ def workLoop(N,eta,CFL,epsilon,endTime,nRecordInstants=3,dimension=1):
     TE=[]
     timeT=[]
     recordInstants=np.linspace(0,(nRecordInstants+1)/nRecordInstants*endTime,nRecordInstants+2)
-    print(recordInstants)
     recIndex=1 
     toRecord=True
     while time<=endTime:
@@ -196,9 +219,9 @@ def workLoop(N,eta,CFL,epsilon,endTime,nRecordInstants=3,dimension=1):
         #Parameter Calculation
         gamma=5/3
         pressureCalc(particles,gamma)
-        acclnCalc(particles,gradKernel,smoothL)
-        deltaUCalc(particles,gradKernel,smoothL)
-        timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon)
+        acclnCalc(particles,gradKernel,smoothL,alpha)
+        deltaUCalc(particles,gradKernel,smoothL,alpha)
+        timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha)
         
         #Plotting
         if toRecord:
@@ -236,7 +259,7 @@ def workLoop(N,eta,CFL,epsilon,endTime,nRecordInstants=3,dimension=1):
 
     plt.plot(timeT,TE)
     plt.show()
-workLoop(100,5,.5,1e-10,0.3,3)
+workLoop(100,5,.5,1e-10,0.3,nRecordInstants=3,alpha=1)
 #for eta in range(2,5):
 #    workLoop(100,eta,0.5,0,0.3)
 #plt.legend(range(2,5))
