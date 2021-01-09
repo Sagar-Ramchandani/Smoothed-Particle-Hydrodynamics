@@ -36,7 +36,6 @@ since need to calculate normalization each time
 
 def M4Kernel1D(s,SmoothL):
     sMag=np.sqrt(np.dot(s,s))
-    #sUnit=s/sMag
     s=sMag/SmoothL
     if s>=0 and s<=1:
         return (2/(3*SmoothL))*(1-3*s**2/2 +3*s**3/4)
@@ -59,7 +58,6 @@ def GradM4Kernel1D(s,SmoothL):
 
 def M4Kernel2D(s,SmoothL):
     sMag=np.sqrt(np.dot(s,s))
-    #sUnit=s/sMag
     s=sMag/SmoothL
     if s>=0 and s<=1:
         return (10/(7*np.pi*(SmoothL)**2))*(1-3*s**2/2 +3*s**3/4)
@@ -70,7 +68,6 @@ def M4Kernel2D(s,SmoothL):
 
 def M4Kernel3D(s,SmoothL):
     sMag=np.sqrt(np.dot(s,s))
-    #sUnit=s/sMag
     s=sMag/SmoothL
     if s>=0 and s<=1:
         return (1/(np.pi*(SmoothL)**3))*(1-3*s**2/2 +3*s**3/4)
@@ -153,7 +150,8 @@ def deltaUCalc(particles,gradKernel,smoothL):
 def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon):
     Tmax=[]
     for i in particles:
-        TmaxI=CFL*min(smoothL/(smoothL*abs(i.divV) + i.soundSpeed),np.sqrt(smoothL/(abs(i.accln)+epsilon)))
+        TmaxI=CFL*min(smoothL/(smoothL*abs(i.divV) + i.soundSpeed),
+                np.sqrt(smoothL/(abs(i.accln)+epsilon)))
         Tmax.append(TmaxI)
     Tglobal=np.min(Tmax)
     return Tglobal
@@ -164,7 +162,7 @@ def totalEnergy(particles):
         tE+=(i.mass*i.velocity**2)/2 + i.internalEnergy*i.mass
     return tE
 
-def workLoop(N,eta,CFL,epsilon,endTime,dimension=1): 
+def workLoop(N,eta,CFL,epsilon,endTime,nRecordInstants=3,dimension=1): 
     #Kernel determination
     if dimension==1:
         Kernel=M4Kernel1D
@@ -184,11 +182,11 @@ def workLoop(N,eta,CFL,epsilon,endTime,dimension=1):
     VelocitiesT=[]
     TE=[]
     timeT=[]
-    recordInstants=[0.,0.1,0.2,0.3,0.4]
-    
-   
-    recIndex=0 
-    while time<endTime:
+    recordInstants=np.linspace(0,(nRecordInstants+1)/nRecordInstants*endTime,nRecordInstants+2)
+    print(recordInstants)
+    recIndex=1 
+    toRecord=True
+    while time<=endTime:
             
         #Density Estimation
         smoothL=smoothingLength(particles,eta)
@@ -200,34 +198,27 @@ def workLoop(N,eta,CFL,epsilon,endTime,dimension=1):
         pressureCalc(particles,gamma)
         acclnCalc(particles,gradKernel,smoothL)
         deltaUCalc(particles,gradKernel,smoothL)
+        timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon)
         
         #Plotting
-        if (time <= recordInstants[recIndex]+0.015)and(time >= recordInstants[recIndex]-0.01):
+        if toRecord:
             PositionsT.append(list(map(lambda x: x.pos, particles)))
             DensitiesT.append(list(map(lambda x: x.density, particles)))
             VelocitiesT.append(list(map(lambda x: x.velocity, particles)))
             TE.append(totalEnergy(particles))
             legend.append('t='+str(round(time,2)))
             timeT.append(round(time,2))
-            #print(recIndex)
-            recIndex+=1
+            toRecord=False
+
+        if time+timeStep>recordInstants[recIndex]:
+            timeStep=recordInstants[recIndex]-time
+            if recIndex+1<len(recordInstants):
+                recIndex+=1
+            toRecord=True
 
         #Integration over time
-        timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon)
         eulerIntegration(particles,timeStep)
         time+=timeStep
-        #print( timeStep, time)
-        
-        
-    if True:#(time <= recordInstants[recIndex]+0.015)and(time >= recordInstants[recIndex]-0.01):
-            PositionsT.append(list(map(lambda x: x.pos, particles)))
-            DensitiesT.append(list(map(lambda x: x.density, particles)))
-            VelocitiesT.append(list(map(lambda x: x.velocity, particles)))
-            TE.append(totalEnergy(particles))
-            legend.append('t='+str(round(time,2)))
-            timeT.append(round(time,2))
-            #print(recIndex)
-            recIndex+=1    
         
     for pos,den in zip(PositionsT,DensitiesT):
         plt.plot(pos,den)
@@ -245,7 +236,7 @@ def workLoop(N,eta,CFL,epsilon,endTime,dimension=1):
 
     plt.plot(timeT,TE)
     plt.show()
-workLoop(100,5,5,0.0000000001,0.3)
+workLoop(100,5,.5,1e-10,0.3,3)
 #for eta in range(2,5):
 #    workLoop(100,eta,0.5,0,0.3)
 #plt.legend(range(2,5))
