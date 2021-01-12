@@ -166,7 +166,7 @@ def deltaUCalc(particles,gradKernel,smoothL,alpha=1):
                 avgDensity=(i.density+j.density)/2
                 vSig=i.soundSpeed+j.soundSpeed-beta*np.dot(relVel,relDist)/relDistMag
                 dU-=j.mass*relDist/relDistMag*gradKernel(relDist,smoothL)*(
-                        alpha*(relVel*relDist)**2/(2*avgDensity*relDistMag**2))
+                        alpha*vSig*(relVel*relDist)**2/(2*avgDensity*relDistMag**2))
         i.deltaU=i.pressure/(i.density**2)*dU
 
 def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha=1):
@@ -186,7 +186,7 @@ def totalEnergy(particles):
         tE+=(i.mass*i.velocity**2)/2 + i.internalEnergy*i.mass
     return tE
 
-def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1): 
+def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,particles=None): 
     #Kernel determination
     if dimension==1:
         Kernel=M4Kernel1D
@@ -197,16 +197,19 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1):
         Kernel=M4Kernel3D
 
     #Particle generation
-    particles=list(map(lambda x: particle(1/N,x,1), np.linspace(0,1,N)))
+    if type(particles)==type(None):
+        particles=list(map(lambda x: particle(1/N,x,1), np.linspace(0,1,N)))
 
     time=0
     legend=[]
     PositionsT=[]
+    PressureT=[]
     DensitiesT=[]
     VelocitiesT=[]
     TE=[]
     timeT=[]
     recordInstants=np.linspace(0,(nRecordInstants+1)/nRecordInstants*endTime,nRecordInstants+2)
+    print(recordInstants)
     recIndex=1 
     toRecord=True
     while time<=endTime:
@@ -226,6 +229,7 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1):
         #Plotting
         if toRecord:
             PositionsT.append(list(map(lambda x: x.pos, particles)))
+            PressureT.append(list(map(lambda x: x.pressure, particles)))
             DensitiesT.append(list(map(lambda x: x.density, particles)))
             VelocitiesT.append(list(map(lambda x: x.velocity, particles)))
             TE.append(totalEnergy(particles))
@@ -242,30 +246,37 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1):
         #Integration over time
         eulerIntegration(particles,timeStep)
         time+=timeStep
-        
-    for pos,den in zip(PositionsT,DensitiesT):
-        plt.plot(pos,den)
-    plt.xlabel('Position')
-    plt.ylabel('Density')
-    plt.legend(legend)
-    plt.show()
-    for pos,vel in zip(PositionsT,VelocitiesT):
-        plt.plot(pos,vel)
-    plt.xlabel('Position')
-    plt.ylabel('Velocity')
-    plt.legend(legend)
-    plt.show()
-    plt.xlabel('Time')
 
-    plt.plot(timeT,TE)
+    f,(ax1,ax2,ax3)=plt.subplots(3)
+
+    for pos,den in zip(PositionsT,DensitiesT):
+        ax1.plot(pos,den)
+    ax1.set_xlabel('Position')
+    ax1.set_xlim(0,1)
+    ax1.set_ylabel('Density')
+    ax1.legend(legend)
+       
+    for pos,pre in zip(PositionsT,PressureT):
+        ax2.plot(pos,pre)
+    ax2.set_xlabel('Position')
+    ax2.set_xlim(0,1)
+    ax2.set_ylabel('Pressure')
+    ax2.legend(legend)
+
+    for pos,vel in zip(PositionsT,VelocitiesT):
+        ax3.plot(pos,vel)
+    ax3.set_xlabel('Time')
+    ax3.set_xlim(0,1)
+    ax3.set_ylabel('Velocity')
+    ax3.legend(legend)
+
     plt.show()
-workLoop(100,5,.5,1e-10,0.3,nRecordInstants=3,alpha=1)
-#for eta in range(2,5):
-#    workLoop(100,eta,0.5,0,0.3)
-#plt.legend(range(2,5))
-#plt.show()
-#for cfl in np.linspace(0.1,1,4):
-#    workLoop(100,4,cfl,0.0000000001,0.35)
-#    print(cfl)
-#plt.legend(np.linspace(0.1,1,4))
-#plt.show()
+
+#    plt.plot(timeT,TE)
+#    plt.show()
+shockPos=0.5
+gamma=5/3
+N=100
+particles=list(map(lambda x: particle(1/N,x,1/(gamma-1)) if x<shockPos 
+    else particle(.125/N,x,.1/(gamma-1)), np.linspace(0,1,N)))
+workLoop(100,5,.5,1e-10,0.2,nRecordInstants=2,alpha=1,particles=particles)
