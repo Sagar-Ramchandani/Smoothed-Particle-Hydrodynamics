@@ -24,15 +24,6 @@ class particle:
         self.divV=0
         self.neighbours=[]
 
-    def distance(self,otherParticle):
-        relativePosition=self.pos - otherParticle.pos
-        dist=np.sqrt(np.dot(relativePosition,relativePosition))
-        return dist
-    
-    def vecDist(self,otherParticle):
-        relPos=self.pos - otherParticle.pos
-        return relPos
-
 '''
 Several options for different dimensions kernels,
 since need to calculate normalization each time
@@ -185,6 +176,42 @@ def acclnCalc(N,neighbours,mass,position,velocity,pressure,soundSpeed,density,gr
         acceleration.append(accln)
     return acceleration
 
+#Change in internal energy
+@jit(nopython=True)
+def deltaUCalc(N,neighbours,mass,position,velocity,pressure,soundSpeed,density,gradKernel,smoothL,alpha=1):
+    deltaU=List()
+    for i in range(N):
+        dU=0
+        dUv=0
+        for j in neighbours[i]:
+            relDist=distanceCalc(position[i],position[j],vector=True)
+            relDistMag=abs(relDist)
+            dU+=mass[j]*(velocity[i]-velocity[j])*gradKernel(relDist,smoothL)
+            #Viscosity term
+            relVel=velocity[i]-velocity[j]
+            if relVel*relDist>0:
+                pass
+            else:
+                beta=alpha*2
+                avgDensity=(density[i]+density[j])/2
+                vSig=soundSpeed[i]+soundSpeed[j]-beta*relVel*relDist/relDistMag
+                dUv-=mass[j]*relDist/relDistMag*gradKernel(relDist,smoothL)*(
+                        alpha*vSig*((relVel*relDist)**2)/(2*avgDensity*relDistMag**2))
+        deltaU.append(pressure[i]/(density[i]**2)*dU+dUv)
+    return deltaU
+
+def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha=1):
+    dTs=[]
+    divergenceV(particles,gradKernel,smoothL)
+    for i in particles:
+        beta=2*alpha
+        dT=CFL*min(smoothL/(smoothL*abs(i.divV) + i.soundSpeed),
+                np.sqrt(smoothL/(abs(i.accln)+epsilon)),
+                smoothL/((1+1.2*alpha)*i.soundSpeed+(1+1.2*beta)*smoothL*abs(i.divV)))
+        dTs.append(dT)
+    Tglobal=np.min(dTs)
+    return Tglobal
+
 def eulerIntegration(particles,timeStep):
     for i in particles:
         i.pos=i.pos+i.velocity*timeStep
@@ -195,39 +222,6 @@ def eulerIntegration(particles,timeStep):
             i.pos=boundR-(boundL-i.pos)
         i.velocity=i.velocity+i.accln*timeStep
         i.internalEnergy+=i.deltaU*timeStep
-
-#Change in internal energy
-def deltaUCalc(particles,gradKernel,smoothL,alpha=1):
-    for i in particles:
-        dU=0
-        dUv=0
-        for j in i.neighbours:
-            relDist=distanceCalc(i.pos,j.pos,vector=True)
-            relDistMag=np.linalg.norm(relDist)
-            dU+=j.mass*(i.velocity-j.velocity)*gradKernel(relDist,smoothL)
-            #Viscosity term
-            relVel=i.velocity-j.velocity
-            if np.dot(relVel,relDist)>0:
-                pass
-            else:
-                beta=alpha*2
-                avgDensity=(i.density+j.density)/2
-                vSig=i.soundSpeed+j.soundSpeed-beta*np.dot(relVel,relDist)/relDistMag
-                dUv-=j.mass*relDist/relDistMag*gradKernel(relDist,smoothL)*(
-                        alpha*vSig*(np.dot(relVel,relDist)**2)/(2*avgDensity*relDistMag**2))
-        i.deltaU=i.pressure/(i.density**2)*dU+dUv
-
-def timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha=1):
-    Tmax=[]
-    divergenceV(particles,gradKernel,smoothL)
-    for i in particles:
-        beta=2*alpha
-        TmaxI=CFL*min(smoothL/(smoothL*abs(i.divV) + i.soundSpeed),
-                np.sqrt(smoothL/(abs(i.accln)+epsilon)),
-                smoothL/((1+1.2*alpha)*i.soundSpeed+(1+1.2*beta)*smoothL*abs(i.divV)))
-        Tmax.append(TmaxI)
-    Tglobal=np.min(Tmax)
-    return Tglobal
 
 def totalEnergy(particles):
     tE=0
@@ -293,9 +287,11 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
         mass=np.asarray([i.mass for i in particles])
         position=np.asarray([i.pos for i in particles])
         smoothL=smoothingLength(position,eta)
+        
         NS=neighbourSearch(N,position,smoothL)
         for i in range(len(NS)):
             particles[i].neighbours=[particles[j] for j in NS[i]]
+
         densities=densityEstimation(N,NS,mass,position,smoothL)
         for i in range(N):
             particles[i].density=densities[i]
@@ -309,12 +305,13 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
         soundSpeed=np.asarray([i.soundSpeed for i in particles])
 
         acceleration=acclnCalc(N,NS,mass,position,velocity,pressure,soundSpeed,densities,gradKernel,smoothL,alpha)
-
         for i in range(N):
             particles[i].accln=acceleration[i]
 
         if not isoThermal:
-            deltaUCalc(particles,gradKernel,smoothL,alpha)
+            deltaUs=deltaUCalc(N,NS,mass,position,velocity,pressure,soundSpeed,densities,gradKernel,smoothL,alpha)
+            for i in range(N):
+                particles[i].deltaU=deltaUs[i]
 
         timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha)
 
