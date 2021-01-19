@@ -90,25 +90,27 @@ def divergenceV(particles,gradKernel,smoothL):
         i.divV=result
 
 @jit(nopython=True)
-def distanceCalc(pos1,pos2,vector=False,intervalLength=1,periodic=True):
+def distanceCalc(pos1,pos2,vector=False,periodic=True):
+    #Constant to avoid zero distance between particles at extremes
+    nonZeroConstant=1e-8
     if vector:
         alpha=pos1-pos2
         if periodic:
-            if abs(alpha)>1-abs(alpha):
+            if abs(alpha)>intervalLength-abs(alpha):
                 if alpha>0:
-                    return abs(alpha)-1
+                    return abs(alpha)-intervalLength+nonZeroConstant
                 else:
-                    return 1-abs(alpha)
+                    return intervalLength-abs(alpha)+nonZeroConstant
             else:
-                return alpha
+                return alpha+nonZeroConstant
         else:
-            return alpha
+            return alpha+nonZeroConstant
     else:
         alpha=abs(pos1-pos2)
         if periodic:
-            return min(alpha,intervalLength-alpha)
+            return min(alpha,intervalLength-alpha+nonZeroConstant)
         else:
-            return alpha
+            return alpha+nonZeroConstant
  
 
 @jit(nopython=True)
@@ -156,11 +158,11 @@ def densityEstimation(N,neighbours,mass,distance,smoothL):
 
 def pressureCalc(particles,gamma):
     for i in particles:
-        i.pressure=i.density*i.internalEnergy
-        i.soundSpeed=np.sqrt(i.internalEnergy)
+#        i.pressure=i.density*i.internalEnergy
+#        i.soundSpeed=np.sqrt(i.internalEnergy)
 
-#        i.pressure=(gamma-1)*i.density*i.internalEnergy
-#        i.soundSpeed=np.sqrt(abs(gamma*(gamma-1)*i.internalEnergy))
+        i.pressure=(gamma-1)*i.density*i.internalEnergy
+        i.soundSpeed=np.sqrt(abs(gamma*(gamma-1)*i.internalEnergy))
 
 @jit(nopython=True)
 def acclnCalc(N,neighbours,mass,position,velocity,pressure,soundSpeed,density,gradKernel,smoothL,alpha=1):
@@ -183,7 +185,7 @@ def acclnCalc(N,neighbours,mass,position,velocity,pressure,soundSpeed,density,gr
         acceleration.append(accln)
     return acceleration
 
-def eulerIntegration(particles,timeStep,boundL=0,boundR=1):
+def eulerIntegration(particles,timeStep):
     for i in particles:
         i.pos=i.pos+i.velocity*timeStep
         #Periodic conditions
@@ -200,9 +202,9 @@ def deltaUCalc(particles,gradKernel,smoothL,alpha=1):
         dU=0
         dUv=0
         for j in i.neighbours:
-            relDist=i.vecDist(j)
+            relDist=distanceCalc(i.pos,j.pos,vector=True)
             relDistMag=np.linalg.norm(relDist)
-            dU+=j.mass*(i.velocity-j.velocity)*gradKernel(i.vecDist(j),smoothL)
+            dU+=j.mass*(i.velocity-j.velocity)*gradKernel(relDist,smoothL)
             #Viscosity term
             relVel=i.velocity-j.velocity
             if np.dot(relVel,relDist)>0:
@@ -248,9 +250,14 @@ def glass(N,boundL,boundR,mass,internalEnergy):
     particles=list(map(lambda x: particle(mass,x,internalEnergy), positions))
     return particles
 
+def sedovBlast(N,boundL,boundR,boundCentre,density,UHigh,ULow):
+    particles=list(map(lambda x: particle(intervalLength*density/N,x,UHigh) if abs(x)<=boundCentre
+        else particle(intervalLength*density/N,x,ULow), np.linspace(boundL,boundR,N)))
+    return particles
 
-def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,particles=None,pltAxis=None): 
-    #Kernel determination
+
+def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,particles=None,isoThermal=False,pltAxis=None): 
+    #Kernel determination 
     if dimension==1:
         Kernel=M4Kernel1D
         gradKernel=GradM4Kernel1D
@@ -300,7 +307,8 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
         acceleration=acclnCalc(N,NS,mass,position,velocity,pressure,soundSpeed,densities,gradKernel,smoothL,alpha)
         for i in range(N):
             particles[i].accln=acceleration[i]
-        #deltaUCalc(particles,gradKernel,smoothL,alpha)
+        if not isoThermal:
+            deltaUCalc(particles,gradKernel,smoothL,alpha)
         timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha)
         SD.append(standardDeviation(densities))
         times.append(round(time,2))
@@ -330,45 +338,52 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
         print(str(time/endTime*100)+' %')
 
     if type(pltAxis)==type(None):
-        f,(ax1,ax2,ax3)=plt.subplots(3)
+        #f,(ax1,ax2,ax3)=plt.subplots(3)
+        f,ax1=plt.subplots(1)
         showPlot=True
     else:
         ax1,ax2,ax3=pltAxis
         showPlot=False
 
     for pos,den in zip(PositionsT,DensitiesT):
-        ax1.scatter(pos,den)
+        den=[x for y,x in sorted(zip(pos,den))]
+        pos=sorted(pos)
+        ax1.plot(pos,den)
     ax1.set_xlabel('Position')
     ax1.set_ylabel('Density')
-    ax1.set_xlim(0,1)
+#    ax1.set_xlim(0,1)
     if showPlot:
         ax1.legend(legend)
+    plt.show()
        
-    for pos,pre in zip(PositionsT,PressureT):
-        ax2.scatter(pos,pre)
-    ax2.set_xlabel('Position')
-    ax2.set_ylabel('Pressure')
-    ax2.set_xlim(0,1)
-    if showPlot:
-        ax2.legend(legend)
-
-    for pos,vel in zip(PositionsT,VelocitiesT):
-        ax3.scatter(pos,vel)
-    ax3.set_xlabel('Time')
-    ax3.set_ylabel('Velocity')
-    ax3.set_xlim(0,1)
-    if showPlot:
-        ax3.legend(legend)
-        plt.show()
+#    for pos,pre in zip(PositionsT,PressureT):
+#        ax2.plot(pos,pre)
+#    ax2.set_xlabel('Position')
+#    ax2.set_ylabel('Pressure')
+#    ax2.set_xlim(0,1)
+#    if showPlot:
+#        ax2.legend(legend)
+#
+#    for pos,vel in zip(PositionsT,VelocitiesT):
+#        ax3.plot(pos,vel)
+#    ax3.set_xlabel('Time')
+#    ax3.set_ylabel('Velocity')
+#    ax3.set_xlim(0,1)
+#    if showPlot:
+#        ax3.legend(legend)
+#        plt.show()
 
     plt.plot(times,SD)
     plt.show()
     plt.plot(timeT,TE)
     plt.show()
 #shockPos=0.5
-gamma=5/3
-N=100
+gamma=1.4
+N=50
+boundL,boundR=-10,10
+intervalLength=abs(boundR-boundL)
 #p=sodShockTube(1,0.125,1,0.1,shockPos,N)
-p=glass(N,0,1,0.01,1)
-
-workLoop(N,5,.1,1e-10,.3,nRecordInstants=1,alpha=1,particles=p)
+#p=glass(N,0,1,0.01,1)
+#workLoop(N,5,.1,1e-10,.3,nRecordInstants=3,alpha=1,particles=p,isoThermal=True)
+p=sedovBlast(N,boundL,boundR,1,1,250,2.5)
+workLoop(N,5,.1,1e-10,.6,nRecordInstants=6,alpha=1,particles=p)
