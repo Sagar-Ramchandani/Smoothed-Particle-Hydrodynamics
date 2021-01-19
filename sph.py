@@ -285,6 +285,8 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
     recordInstants=np.linspace(0,(nRecordInstants+1)/nRecordInstants*endTime,nRecordInstants+2)
     recIndex=1 
     toRecord=True
+    onePercentSDTime=0
+    onePercentTimeRecorded=False
     while time<=endTime:
 
         #Density Estimation
@@ -301,17 +303,27 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
         #Parameter Calculation
         gamma=5/3
         pressureCalc(particles,gamma)
+
         velocity=np.asarray([i.velocity for i in particles])
         pressure=np.asarray([i.pressure for i in particles])
         soundSpeed=np.asarray([i.soundSpeed for i in particles])
+
         acceleration=acclnCalc(N,NS,mass,position,velocity,pressure,soundSpeed,densities,gradKernel,smoothL,alpha)
+
         for i in range(N):
             particles[i].accln=acceleration[i]
+
         if not isoThermal:
             deltaUCalc(particles,gradKernel,smoothL,alpha)
+
         timeStep=timeStepCalc(CFL,particles,gradKernel,smoothL,epsilon,alpha)
+
         SD.append(standardDeviation(densities))
         times.append(round(time,2))
+
+        if standardDeviation(densities)/np.mean(densities)<0.01 and not onePercentTimeRecorded:
+            onePercentSDTime=time
+            onePercentTimeRecorded=True
 
         #Plotting
         if toRecord:
@@ -336,13 +348,15 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
         time+=timeStep
 
         print(str(time/endTime*100)+' %')
+    
 
     if type(pltAxis)==type(None):
         #f,(ax1,ax2,ax3)=plt.subplots(3)
         f,ax1=plt.subplots(1)
         showPlot=True
     else:
-        ax1,ax2,ax3=pltAxis
+        #ax1,ax2,ax3=pltAxis
+        ax1=pltAxis
         showPlot=False
 
     for pos,den in zip(PositionsT,DensitiesT):
@@ -351,24 +365,24 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
         ax1.plot(pos,den)
     ax1.set_xlabel('Position')
     ax1.set_ylabel('Density')
-#    ax1.set_xlim(0,1)
+    ax1.set_xlim(boundL,boundR)
     if showPlot:
         ax1.legend(legend)
-    plt.show()
-       
+        plt.show()
+      
 #    for pos,pre in zip(PositionsT,PressureT):
 #        ax2.plot(pos,pre)
 #    ax2.set_xlabel('Position')
 #    ax2.set_ylabel('Pressure')
-#    ax2.set_xlim(0,1)
+#    ax2.set_xlim(boundL,boundR)
 #    if showPlot:
-#        ax2.legend(legend)
+#       ax2.legend(legend)
 #
 #    for pos,vel in zip(PositionsT,VelocitiesT):
 #        ax3.plot(pos,vel)
 #    ax3.set_xlabel('Time')
 #    ax3.set_ylabel('Velocity')
-#    ax3.set_xlim(0,1)
+#    ax3.set_xlim(boundL,boundR)
 #    if showPlot:
 #        ax3.legend(legend)
 #        plt.show()
@@ -377,13 +391,26 @@ def workLoop(N,eta,CFL,epsilon,endTime,alpha=1,nRecordInstants=3,dimension=1,par
     plt.show()
     plt.plot(timeT,TE)
     plt.show()
-#shockPos=0.5
-gamma=1.4
-N=50
+    return (onePercentSDTime)
+
+#gamma=1.4
+#N=100
+#boundL,boundR=0,1
+#intervalLength=abs(boundR-boundL)
+#workLoop(N,5,.1,1e-10,5,nRecordInstants=3,alpha=5,particles=p,isoThermal=True)
+
+#f,ax1=plt.subplots(1)
+#onePercent=[]
+#while len(onePercent)<5:
+#    p=glass(N,0,1,0.01,1)
+#    t=workLoop(N,5,.1,1e-10,5,nRecordInstants=3,alpha=5,particles=p,isoThermal=True,pltAxis=ax1)
+#    onePercent.append(t)
+#print(onePercent)
+#print(np.mean(onePercent))
+#print(np.std(onePercent))
+
+N=100
 boundL,boundR=-10,10
 intervalLength=abs(boundR-boundL)
-#p=sodShockTube(1,0.125,1,0.1,shockPos,N)
-#p=glass(N,0,1,0.01,1)
-#workLoop(N,5,.1,1e-10,.3,nRecordInstants=3,alpha=1,particles=p,isoThermal=True)
 p=sedovBlast(N,boundL,boundR,1,1,250,2.5)
-workLoop(N,5,.1,1e-10,.6,nRecordInstants=6,alpha=1,particles=p)
+workLoop(N,5,.1,1e-10,.6,nRecordInstants=6,alpha=0,particles=p)
